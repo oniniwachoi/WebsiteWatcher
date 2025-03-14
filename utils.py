@@ -3,70 +3,65 @@ Utility functions for webpage monitoring
 """
 import hashlib
 import logging
-import time
-from typing import Optional, Tuple
-from datetime import datetime
-from difflib import unified_diff
+from typing import Optional
+from urllib.parse import urlparse
 
 def setup_logging() -> None:
-    """Configure logging with timestamp and appropriate format"""
+    """Configure logging with proper format"""
+    from config import DEFAULT_CONFIG
+    
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        format=DEFAULT_CONFIG['LOG_FORMAT'],
+        datefmt=DEFAULT_CONFIG['DATE_FORMAT']
     )
 
+def is_valid_url(url: str) -> bool:
+    """
+    Validate if the given URL is properly formatted
+    
+    Args:
+        url: URL string to validate
+    
+    Returns:
+        bool: True if URL is valid, False otherwise
+    """
+    try:
+        result = urlparse(url)
+        return all([result.scheme, result.netloc])
+    except ValueError:
+        return False
+
 def calculate_content_hash(content: str) -> str:
-    """Calculate SHA-256 hash of content for efficient comparison"""
+    """
+    Calculate SHA-256 hash of content for change detection
+    
+    Args:
+        content: String content to hash
+    
+    Returns:
+        str: Hexadecimal hash of the content
+    """
     return hashlib.sha256(content.encode('utf-8')).hexdigest()
 
-def format_timestamp() -> str:
-    """Return formatted current timestamp"""
-    return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-def exponential_backoff(attempt: int, base_delay: int, max_delay: int) -> int:
-    """Calculate exponential backoff delay"""
-    delay = min(base_delay * (2 ** attempt), max_delay)
-    return delay
-
-def extract_relevant_content(soup) -> Tuple[str, Optional[str]]:
+def extract_relevant_content(soup, selector: Optional[str] = None) -> str:
     """
-    Extract relevant content from BeautifulSoup object
-    Returns tuple of (content, selector_used)
+    Extract content from BeautifulSoup object based on selector
+    
+    Args:
+        soup: BeautifulSoup object
+        selector: CSS selector to find specific element (optional)
+    
+    Returns:
+        str: Extracted content
     """
-    # Try different common selectors for main content
-    selectors = [
-        ('main', 'main'),
-        ('#content', '#content'),
-        ('.content', '.content'),
-        ('article', 'article'),
-        ('body', 'body')
-    ]
-
-    for selector, selector_name in selectors:
+    if selector:
         element = soup.select_one(selector)
-        if element:
-            return element.get_text(strip=True), selector_name
-
-    # Fallback to body if no specific content area found
-    return soup.body.get_text(strip=True), 'body'
-
-def get_content_diff(old_content: str, new_content: str) -> str:
-    """
-    Generate a human-readable diff between old and new content
-    """
-    old_lines = old_content.splitlines()
-    new_lines = new_content.splitlines()
-
-    diff = list(unified_diff(
-        old_lines,
-        new_lines,
-        fromfile='previous',
-        tofile='current',
-        lineterm='',
-        n=3  # Context lines
-    ))
-
-    if diff:
-        return '\n'.join(diff)
-    return "コンテンツは変更されましたが、差分を特定できませんでした。"
+        return element.get_text(strip=True) if element else ""
+    
+    # If no selector provided, get main content
+    # Remove script and style elements
+    for script in soup(["script", "style"]):
+        script.decompose()
+    
+    return soup.get_text(strip=True)
