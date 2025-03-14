@@ -79,10 +79,10 @@ class WebpageMonitor:
             self.logger.error(f"Screenshot capture failed: {str(e)}")
             return None
 
-    def get_page_content(self) -> Tuple[Optional[str], Optional[str]]:
+    def get_page_content(self) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """
         Fetch webpage content with retry mechanism
-        Returns (content, screenshot_base64)
+        Returns (content, screenshot_base64, html_content)
         """
         for attempt in range(MAX_RETRIES):
             try:
@@ -101,7 +101,7 @@ class WebpageMonitor:
                     content = extract_relevant_content(soup, self.selector)
 
                 screenshot = self.capture_screenshot()
-                return content, screenshot
+                return content, screenshot, response.text
 
             except requests.RequestException as e:
                 self.logger.error(f"Attempt {attempt + 1}/{MAX_RETRIES} failed: {str(e)}")
@@ -109,18 +109,19 @@ class WebpageMonitor:
                     time.sleep(RETRY_DELAY)
                 else:
                     self.logger.error(f"Failed to fetch {self.url} after {MAX_RETRIES} attempts")
-                    return None, None
+                    return None, None, None
 
     def check_for_changes(self) -> Dict[str, Any]:
         """
         Check for changes in webpage content
         """
-        content, screenshot = self.get_page_content()
+        content, screenshot, html = self.get_page_content()
         if content is None:
             return {
                 'status': 'error',
                 'message': 'Failed to fetch content',
-                'screenshot': None
+                'screenshot': None,
+                'html': None
             }
 
         current_hash = calculate_content_hash(content)
@@ -131,7 +132,8 @@ class WebpageMonitor:
                 'status': 'initial',
                 'message': 'Initial content captured',
                 'content': content,
-                'screenshot': screenshot
+                'screenshot': screenshot,
+                'html': html
             }
 
         if current_hash != self.previous_hash:
@@ -140,13 +142,15 @@ class WebpageMonitor:
                 'status': 'changed',
                 'message': 'Content changed',
                 'content': content,
-                'screenshot': screenshot
+                'screenshot': screenshot,
+                'html': html
             }
 
         return {
             'status': 'unchanged',
             'message': 'No changes detected',
-            'screenshot': screenshot
+            'screenshot': screenshot,
+            'html': html
         }
 
     def start_monitoring(self):

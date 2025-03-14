@@ -34,11 +34,25 @@ class MonitorGUI:
         self.interval_entry = ttk.Entry(interval_frame, textvariable=self.interval_var, width=10)
         self.interval_entry.grid(row=0, column=1, padx=5)
 
-        # Preview Area
-        preview_frame = ttk.LabelFrame(root, text="Page Preview", padding="5")
-        preview_frame.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
-        self.preview_label = ttk.Label(preview_frame)
+        # Notebook for Preview Tabs
+        self.notebook = ttk.Notebook(root)
+        self.notebook.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
+
+        # Screenshot Preview Tab
+        screenshot_frame = ttk.Frame(self.notebook)
+        self.notebook.add(screenshot_frame, text="Screenshot")
+        self.preview_label = ttk.Label(screenshot_frame)
         self.preview_label.grid(row=0, column=0, sticky="nsew")
+
+        # HTML Preview Tab
+        html_frame = ttk.Frame(self.notebook)
+        self.notebook.add(html_frame, text="HTML")
+        self.html_text = tk.Text(html_frame, wrap=tk.WORD, height=20)
+        self.html_text.grid(row=0, column=0, sticky="nsew")
+        # Add scrollbar for HTML view
+        html_scrollbar = ttk.Scrollbar(html_frame, orient="vertical", command=self.html_text.yview)
+        html_scrollbar.grid(row=0, column=1, sticky="ns")
+        self.html_text.configure(yscrollcommand=html_scrollbar.set)
 
         # Status Display
         status_frame = ttk.LabelFrame(root, text="Status", padding="5")
@@ -66,8 +80,9 @@ class MonitorGUI:
         root.columnconfigure(0, weight=1)
         root.rowconfigure(2, weight=1)  # Make preview area expandable
 
-    def update_preview(self, screenshot_base64: Optional[str]):
-        """Update the preview image"""
+    def update_preview(self, screenshot_base64: Optional[str], html_content: Optional[str]):
+        """Update both screenshot and HTML previews"""
+        # Update screenshot preview
         if screenshot_base64:
             try:
                 # Convert base64 to PIL Image
@@ -88,6 +103,14 @@ class MonitorGUI:
                 self.update_status(f"Error updating preview: {str(e)}")
         else:
             self.preview_label.configure(image='')
+
+        # Update HTML preview
+        if html_content:
+            self.html_text.delete('1.0', tk.END)
+            self.html_text.insert('1.0', html_content)
+        else:
+            self.html_text.delete('1.0', tk.END)
+            self.html_text.insert('1.0', 'No HTML content available')
 
     def update_status(self, status: str):
         """Update the status display"""
@@ -117,7 +140,7 @@ class MonitorGUI:
                     self.update_result("No changes detected")
 
                 # Update preview
-                self.update_preview(result.get('screenshot'))
+                self.update_preview(result.get('screenshot'), result.get('html'))
 
                 # Sleep for the specified interval
                 for _ in range(int(self.interval_var.get())):
