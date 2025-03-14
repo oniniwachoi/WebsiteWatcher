@@ -38,7 +38,9 @@ class WebpageMonitor:
         url: str,
         interval: int = DEFAULT_CONFIG['INTERVAL'],
         selector: Optional[str] = None,
-        use_trafilatura: bool = False
+        use_trafilatura: bool = False,
+        capture_screenshot: bool = True,
+        capture_html: bool = True
     ):
         """
         Initialize webpage monitor
@@ -50,16 +52,20 @@ class WebpageMonitor:
         self.interval = interval
         self.selector = selector
         self.use_trafilatura = use_trafilatura
+        self.capture_screenshot = capture_screenshot
+        self.capture_html = capture_html
         self.previous_hash = None
         self.session = requests.Session()
         self.session.headers.update(HEADERS)
 
-        # Setup Selenium
-        chrome_options = Options()
-        chrome_options.add_argument('--headless')
-        chrome_options.add_argument('--no-sandbox')
-        chrome_options.add_argument('--disable-dev-shm-usage')
-        self.driver = webdriver.Chrome(options=chrome_options)
+        # Setup Selenium only if screenshot capture is enabled
+        self.driver = None
+        if self.capture_screenshot:
+            chrome_options = Options()
+            chrome_options.add_argument('--headless')
+            chrome_options.add_argument('--no-sandbox')
+            chrome_options.add_argument('--disable-dev-shm-usage')
+            self.driver = webdriver.Chrome(options=chrome_options)
 
         setup_logging()
         self.logger = logging.getLogger(__name__)
@@ -69,6 +75,9 @@ class WebpageMonitor:
         Capture webpage screenshot using Selenium
         Returns base64 encoded PNG image
         """
+        if not self.capture_screenshot or not self.driver:
+            return None
+
         try:
             self.driver.get(self.url)
             time.sleep(2)  # Wait for page to load
@@ -100,8 +109,9 @@ class WebpageMonitor:
                     soup = BeautifulSoup(response.text, 'html.parser')
                     content = extract_relevant_content(soup, self.selector)
 
-                screenshot = self.capture_screenshot()
-                return content, screenshot, response.text
+                screenshot = self.capture_screenshot() if self.capture_screenshot else None
+                html = response.text if self.capture_html else None
+                return content, screenshot, html
 
             except requests.RequestException as e:
                 self.logger.error(f"Attempt {attempt + 1}/{MAX_RETRIES} failed: {str(e)}")
@@ -180,7 +190,8 @@ class WebpageMonitor:
             self.logger.error(f"Unexpected error: {str(e)}")
         finally:
             self.session.close()
-            self.driver.quit()
+            if self.driver:
+                self.driver.quit()
 
 if __name__ == "__main__":
     args = parse_arguments()

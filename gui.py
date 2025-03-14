@@ -34,43 +34,67 @@ class MonitorGUI:
         self.interval_entry = ttk.Entry(interval_frame, textvariable=self.interval_var, width=10)
         self.interval_entry.grid(row=0, column=1, padx=5)
 
+        # Preview Options
+        options_frame = ttk.LabelFrame(root, text="Preview Options", padding="5")
+        options_frame.grid(row=2, column=0, sticky="ew", padx=5, pady=5)
+
+        # Screenshot checkbox
+        self.screenshot_var = tk.BooleanVar(value=True)
+        self.screenshot_cb = ttk.Checkbutton(
+            options_frame, 
+            text="Enable Screenshot Preview",
+            variable=self.screenshot_var,
+            command=self.toggle_screenshot
+        )
+        self.screenshot_cb.grid(row=0, column=0, sticky="w", padx=5)
+
+        # HTML checkbox
+        self.html_var = tk.BooleanVar(value=True)
+        self.html_cb = ttk.Checkbutton(
+            options_frame,
+            text="Enable HTML Preview",
+            variable=self.html_var,
+            command=self.toggle_html
+        )
+        self.html_cb.grid(row=0, column=1, sticky="w", padx=5)
+
         # Notebook for Preview Tabs
         self.notebook = ttk.Notebook(root)
-        self.notebook.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
+        self.notebook.grid(row=3, column=0, sticky="nsew", padx=5, pady=5)
 
         # Screenshot Preview Tab
-        screenshot_frame = ttk.Frame(self.notebook)
-        self.notebook.add(screenshot_frame, text="Screenshot")
-        self.preview_label = ttk.Label(screenshot_frame)
+        self.screenshot_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.screenshot_frame, text="Screenshot")
+        self.preview_label = ttk.Label(self.screenshot_frame)
         self.preview_label.grid(row=0, column=0, sticky="nsew")
 
         # HTML Preview Tab
-        html_frame = ttk.Frame(self.notebook)
-        self.notebook.add(html_frame, text="HTML")
-        self.html_text = tk.Text(html_frame, wrap=tk.WORD, height=20)
+        self.html_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.html_frame, text="HTML")
+        self.html_text = tk.Text(self.html_frame, wrap=tk.WORD, height=20)
         self.html_text.grid(row=0, column=0, sticky="nsew")
         # Add scrollbar for HTML view
-        html_scrollbar = ttk.Scrollbar(html_frame, orient="vertical", command=self.html_text.yview)
+        html_scrollbar = ttk.Scrollbar(self.html_frame, orient="vertical", command=self.html_text.yview)
         html_scrollbar.grid(row=0, column=1, sticky="ns")
         self.html_text.configure(yscrollcommand=html_scrollbar.set)
 
         # Status Display
         status_frame = ttk.LabelFrame(root, text="Status", padding="5")
-        status_frame.grid(row=3, column=0, sticky="ew", padx=5, pady=5)
+        status_frame.grid(row=4, column=0, sticky="ew", padx=5, pady=5)
         self.status_var = tk.StringVar(value="Not monitoring")
         self.status_label = ttk.Label(status_frame, textvariable=self.status_var)
         self.status_label.grid(row=0, column=0, sticky="w")
 
         # Latest Result Display
         result_frame = ttk.LabelFrame(root, text="Latest Result", padding="5")
-        result_frame.grid(row=4, column=0, sticky="ew", padx=5, pady=5)
+        result_frame.grid(row=5, column=0, sticky="ew", padx=5, pady=5)
         self.result_var = tk.StringVar(value="No results yet")
         self.result_label = ttk.Label(result_frame, textvariable=self.result_var, wraplength=400)
         self.result_label.grid(row=0, column=0, sticky="w")
 
         # Control Buttons
         button_frame = ttk.Frame(root, padding="5")
-        button_frame.grid(row=5, column=0, sticky="ew")
+        button_frame.grid(row=6, column=0, sticky="ew")
         self.start_button = ttk.Button(button_frame, text="Start Monitoring", command=self.start_monitoring)
         self.start_button.grid(row=0, column=0, padx=5)
         self.stop_button = ttk.Button(button_frame, text="Stop Monitoring", command=self.stop_monitoring, state=tk.DISABLED)
@@ -78,12 +102,36 @@ class MonitorGUI:
 
         # Configure grid weights
         root.columnconfigure(0, weight=1)
-        root.rowconfigure(2, weight=1)  # Make preview area expandable
+        root.rowconfigure(3, weight=1)  # Make preview area expandable
+
+        # Configure HTML frame and text widget to expand
+        self.html_frame.columnconfigure(0, weight=1)
+        self.html_frame.rowconfigure(0, weight=1)
+
+    def toggle_screenshot(self):
+        """Toggle screenshot preview"""
+        if not self.screenshot_var.get():
+            self.notebook.tab(self.screenshot_frame, state="disabled")
+        else:
+            self.notebook.tab(self.screenshot_frame, state="normal")
+
+        if self.monitor:
+            self.monitor.capture_screenshot = self.screenshot_var.get()
+
+    def toggle_html(self):
+        """Toggle HTML preview"""
+        if not self.html_var.get():
+            self.notebook.tab(self.html_frame, state="disabled")
+        else:
+            self.notebook.tab(self.html_frame, state="normal")
+
+        if self.monitor:
+            self.monitor.capture_html = self.html_var.get()
 
     def update_preview(self, screenshot_base64: Optional[str], html_content: Optional[str]):
         """Update both screenshot and HTML previews"""
-        # Update screenshot preview
-        if screenshot_base64:
+        # Update screenshot preview if enabled
+        if self.screenshot_var.get() and screenshot_base64:
             try:
                 # Convert base64 to PIL Image
                 image_data = base64.b64decode(screenshot_base64)
@@ -104,8 +152,8 @@ class MonitorGUI:
         else:
             self.preview_label.configure(image='')
 
-        # Update HTML preview
-        if html_content:
+        # Update HTML preview if enabled
+        if self.html_var.get() and html_content:
             self.html_text.delete('1.0', tk.END)
             self.html_text.insert('1.0', html_content)
         else:
@@ -127,6 +175,7 @@ class MonitorGUI:
         try:
             while self.is_monitoring:
                 result = self.monitor.check_for_changes()
+
                 if result['status'] == 'error':
                     self.update_status(f"Error: {result['message']}")
                 elif result['status'] == 'changed':
@@ -147,6 +196,7 @@ class MonitorGUI:
                     if not self.is_monitoring:
                         break
                     self.root.after(1000)  # Sleep for 1 second
+
         except Exception as e:
             self.update_status(f"Error: {str(e)}")
         finally:
@@ -159,7 +209,12 @@ class MonitorGUI:
             url = self.url_var.get()
             interval = int(self.interval_var.get())
 
-            self.monitor = WebpageMonitor(url=url, interval=interval)
+            self.monitor = WebpageMonitor(
+                url=url,
+                interval=interval,
+                capture_screenshot=self.screenshot_var.get(),
+                capture_html=self.html_var.get()
+            )
             self.is_monitoring = True
 
             self.monitoring_thread = threading.Thread(target=self.monitoring_loop, daemon=True)
@@ -169,6 +224,8 @@ class MonitorGUI:
             self.stop_button.config(state=tk.NORMAL)
             self.url_entry.config(state=tk.DISABLED)
             self.interval_entry.config(state=tk.DISABLED)
+            self.screenshot_cb.config(state=tk.DISABLED)
+            self.html_cb.config(state=tk.DISABLED)
 
             self.update_status("Starting monitoring...")
         except ValueError as e:
@@ -184,6 +241,8 @@ class MonitorGUI:
         self.stop_button.config(state=tk.DISABLED)
         self.url_entry.config(state=tk.NORMAL)
         self.interval_entry.config(state=tk.NORMAL)
+        self.screenshot_cb.config(state=tk.NORMAL)
+        self.html_cb.config(state=tk.NORMAL)
 
         self.update_status("Monitoring stopped")
 
