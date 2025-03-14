@@ -26,9 +26,21 @@ class MonitorGUI:
         self.url_entry = ttk.Entry(url_frame, textvariable=self.url_var, width=50)
         self.url_entry.grid(row=0, column=1, padx=5)
 
+        # Navigation Buttons
+        nav_frame = ttk.Frame(root, padding="5")
+        nav_frame.grid(row=1, column=0, sticky="ew")
+        self.back_button = ttk.Button(nav_frame, text="←", command=self.browser_back, width=3)
+        self.back_button.grid(row=0, column=0, padx=2)
+        self.forward_button = ttk.Button(nav_frame, text="→", command=self.browser_forward, width=3)
+        self.forward_button.grid(row=0, column=1, padx=2)
+        self.refresh_button = ttk.Button(nav_frame, text="↻", command=self.browser_refresh, width=3)
+        self.refresh_button.grid(row=0, column=2, padx=2)
+        self.go_button = ttk.Button(nav_frame, text="Go", command=self.navigate_to_url, width=5)
+        self.go_button.grid(row=0, column=3, padx=2)
+
         # Interval Entry
-        interval_frame = ttk.Frame(root, padding="5")
-        interval_frame.grid(row=1, column=0, sticky="ew")
+        interval_frame = ttk.Frame(nav_frame)
+        interval_frame.grid(row=0, column=4, padx=20, sticky="e")
         ttk.Label(interval_frame, text="Interval (seconds):").grid(row=0, column=0, sticky="w")
         self.interval_var = tk.StringVar(value="60")
         self.interval_entry = ttk.Entry(interval_frame, textvariable=self.interval_var, width=10)
@@ -58,6 +70,16 @@ class MonitorGUI:
         )
         self.html_cb.grid(row=0, column=1, sticky="w", padx=5)
 
+        # Interactive mode checkbox
+        self.interactive_var = tk.BooleanVar(value=True)
+        self.interactive_cb = ttk.Checkbutton(
+            options_frame,
+            text="Enable Interactive Mode",
+            variable=self.interactive_var,
+            command=self.toggle_interactive
+        )
+        self.interactive_cb.grid(row=0, column=2, sticky="w", padx=5)
+
         # Notebook for Preview Tabs
         self.notebook = ttk.Notebook(root)
         self.notebook.grid(row=3, column=0, sticky="nsew", padx=5, pady=5)
@@ -77,6 +99,12 @@ class MonitorGUI:
         html_scrollbar = ttk.Scrollbar(self.html_frame, orient="vertical", command=self.html_text.yview)
         html_scrollbar.grid(row=0, column=1, sticky="ns")
         self.html_text.configure(yscrollcommand=html_scrollbar.set)
+
+        # Interactive Browser Tab
+        self.browser_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.browser_frame, text="Interactive")
+        self.browser_preview = ttk.Label(self.browser_frame)
+        self.browser_preview.grid(row=0, column=0, sticky="nsew")
 
         # Status Display
         status_frame = ttk.LabelFrame(root, text="Status", padding="5")
@@ -104,9 +132,10 @@ class MonitorGUI:
         root.columnconfigure(0, weight=1)
         root.rowconfigure(3, weight=1)  # Make preview area expandable
 
-        # Configure HTML frame and text widget to expand
-        self.html_frame.columnconfigure(0, weight=1)
-        self.html_frame.rowconfigure(0, weight=1)
+        # Configure frame expansion
+        for frame in [self.screenshot_frame, self.html_frame, self.browser_frame]:
+            frame.columnconfigure(0, weight=1)
+            frame.rowconfigure(0, weight=1)
 
     def toggle_screenshot(self):
         """Toggle screenshot preview"""
@@ -128,6 +157,34 @@ class MonitorGUI:
         if self.monitor:
             self.monitor.capture_html = self.html_var.get()
 
+    def toggle_interactive(self):
+        """Toggle interactive mode"""
+        if not self.interactive_var.get():
+            self.notebook.tab(self.browser_frame, state="disabled")
+        else:
+            self.notebook.tab(self.browser_frame, state="normal")
+
+    def browser_back(self):
+        """Go back in browser history"""
+        if self.monitor and self.interactive_var.get():
+            self.monitor.browser_back()
+
+    def browser_forward(self):
+        """Go forward in browser history"""
+        if self.monitor and self.interactive_var.get():
+            self.monitor.browser_forward()
+
+    def browser_refresh(self):
+        """Refresh current page"""
+        if self.monitor and self.interactive_var.get():
+            self.monitor.browser_refresh()
+
+    def navigate_to_url(self):
+        """Navigate to entered URL"""
+        if self.monitor and self.interactive_var.get():
+            url = self.url_var.get()
+            self.monitor.navigate_to(url)
+
     def update_preview(self, screenshot_base64: Optional[str], html_content: Optional[str]):
         """Update both screenshot and HTML previews"""
         # Update screenshot preview if enabled
@@ -147,10 +204,17 @@ class MonitorGUI:
                 photo = ImageTk.PhotoImage(image)
                 self.preview_label.configure(image=photo)
                 self.preview_label.image = photo  # Keep reference
+
+                # Update interactive browser preview if enabled
+                if self.interactive_var.get():
+                    browser_photo = ImageTk.PhotoImage(image)
+                    self.browser_preview.configure(image=browser_photo)
+                    self.browser_preview.image = browser_photo
             except Exception as e:
                 self.update_status(f"Error updating preview: {str(e)}")
         else:
             self.preview_label.configure(image='')
+            self.browser_preview.configure(image='')
 
         # Update HTML preview if enabled
         if self.html_var.get() and html_content:
@@ -180,7 +244,7 @@ class MonitorGUI:
                     self.update_status(f"Error: {result['message']}")
                 elif result['status'] == 'changed':
                     self.update_status("Change detected!")
-                    self.update_result(f"Content changed")
+                    self.update_result("Content changed")
                 elif result['status'] == 'initial':
                     self.update_status("Initial content captured")
                     self.update_result("Initial content captured")
@@ -190,6 +254,12 @@ class MonitorGUI:
 
                 # Update preview
                 self.update_preview(result.get('screenshot'), result.get('html'))
+
+                # Update URL if in interactive mode
+                if self.interactive_var.get() and self.monitor:
+                    current_url = self.monitor.get_current_url()
+                    if current_url != self.url_var.get():
+                        self.url_var.set(current_url)
 
                 # Sleep for the specified interval
                 for _ in range(int(self.interval_var.get())):
@@ -213,7 +283,8 @@ class MonitorGUI:
                 url=url,
                 interval=interval,
                 capture_screenshot=self.screenshot_var.get(),
-                capture_html=self.html_var.get()
+                capture_html=self.html_var.get(),
+                interactive_mode=self.interactive_var.get()
             )
             self.is_monitoring = True
 
@@ -226,6 +297,7 @@ class MonitorGUI:
             self.interval_entry.config(state=tk.DISABLED)
             self.screenshot_cb.config(state=tk.DISABLED)
             self.html_cb.config(state=tk.DISABLED)
+            self.interactive_cb.config(state=tk.DISABLED)
 
             self.update_status("Starting monitoring...")
         except ValueError as e:
@@ -243,6 +315,7 @@ class MonitorGUI:
         self.interval_entry.config(state=tk.NORMAL)
         self.screenshot_cb.config(state=tk.NORMAL)
         self.html_cb.config(state=tk.NORMAL)
+        self.interactive_cb.config(state=tk.NORMAL)
 
         self.update_status("Monitoring stopped")
 

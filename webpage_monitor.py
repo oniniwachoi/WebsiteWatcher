@@ -10,6 +10,10 @@ from typing import Optional, Dict, Any, Tuple
 import trafilatura
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from PIL import Image
 import io
 import base64
@@ -30,6 +34,8 @@ def parse_arguments():
                       help='Use trafilatura for content extraction')
     parser.add_argument('--gui', action='store_true',
                       help='Launch with GUI interface')
+    parser.add_argument('--interactive', action='store_true',
+                      help='Launch in interactive mode')
     return parser.parse_args()
 
 class WebpageMonitor:
@@ -40,7 +46,8 @@ class WebpageMonitor:
         selector: Optional[str] = None,
         use_trafilatura: bool = False,
         capture_screenshot: bool = True,
-        capture_html: bool = True
+        capture_html: bool = True,
+        interactive_mode: bool = False
     ):
         """
         Initialize webpage monitor
@@ -54,21 +61,50 @@ class WebpageMonitor:
         self.use_trafilatura = use_trafilatura
         self.capture_screenshot = capture_screenshot
         self.capture_html = capture_html
+        self.interactive_mode = interactive_mode
         self.previous_hash = None
         self.session = requests.Session()
         self.session.headers.update(HEADERS)
 
-        # Setup Selenium only if screenshot capture is enabled
+        # Setup Selenium for interactive mode and/or screenshots
         self.driver = None
-        if self.capture_screenshot:
+        if self.interactive_mode or self.capture_screenshot:
             chrome_options = Options()
-            chrome_options.add_argument('--headless')
+            if not self.interactive_mode:
+                chrome_options.add_argument('--headless')
             chrome_options.add_argument('--no-sandbox')
             chrome_options.add_argument('--disable-dev-shm-usage')
+            chrome_options.add_argument('--start-maximized')
             self.driver = webdriver.Chrome(options=chrome_options)
 
         setup_logging()
         self.logger = logging.getLogger(__name__)
+
+    def navigate_to(self, url: str) -> None:
+        """Navigate to a URL in interactive mode"""
+        if self.interactive_mode and self.driver:
+            self.driver.get(url)
+
+    def get_current_url(self) -> str:
+        """Get current URL in interactive mode"""
+        if self.interactive_mode and self.driver:
+            return self.driver.current_url
+        return self.url
+
+    def browser_back(self) -> None:
+        """Go back in browser history"""
+        if self.interactive_mode and self.driver:
+            self.driver.back()
+
+    def browser_forward(self) -> None:
+        """Go forward in browser history"""
+        if self.interactive_mode and self.driver:
+            self.driver.forward()
+
+    def browser_refresh(self) -> None:
+        """Refresh current page"""
+        if self.interactive_mode and self.driver:
+            self.driver.refresh()
 
     def capture_screenshot(self) -> Optional[str]:
         """
@@ -79,10 +115,10 @@ class WebpageMonitor:
             return None
 
         try:
-            self.driver.get(self.url)
-            time.sleep(2)  # Wait for page to load
+            if not self.interactive_mode:
+                self.driver.get(self.url)
+                time.sleep(2)  # Wait for page to load
             screenshot = self.driver.get_screenshot_as_png()
-            # Convert to base64 for easy transfer
             return base64.b64encode(screenshot).decode('utf-8')
         except Exception as e:
             self.logger.error(f"Screenshot capture failed: {str(e)}")
@@ -95,23 +131,34 @@ class WebpageMonitor:
         """
         for attempt in range(MAX_RETRIES):
             try:
-                response = self.session.get(
-                    self.url,
-                    timeout=REQUEST_TIMEOUT,
-                    allow_redirects=True
-                )
-                response.raise_for_status()
-
-                content = None
-                if self.use_trafilatura:
-                    content = trafilatura.extract(response.text)
+                if self.interactive_mode and self.driver:
+                    current_url = self.driver.current_url
+                    html = self.driver.page_source
+                    if self.use_trafilatura:
+                        content = trafilatura.extract(html)
+                    else:
+                        soup = BeautifulSoup(html, 'html.parser')
+                        content = extract_relevant_content(soup, self.selector)
+                    screenshot = self.capture_screenshot() if self.capture_screenshot else None
+                    return content, screenshot, html if self.capture_html else None
                 else:
-                    soup = BeautifulSoup(response.text, 'html.parser')
-                    content = extract_relevant_content(soup, self.selector)
+                    response = self.session.get(
+                        self.url,
+                        timeout=REQUEST_TIMEOUT,
+                        allow_redirects=True
+                    )
+                    response.raise_for_status()
 
-                screenshot = self.capture_screenshot() if self.capture_screenshot else None
-                html = response.text if self.capture_html else None
-                return content, screenshot, html
+                    content = None
+                    if self.use_trafilatura:
+                        content = trafilatura.extract(response.text)
+                    else:
+                        soup = BeautifulSoup(response.text, 'html.parser')
+                        content = extract_relevant_content(soup, self.selector)
+
+                    screenshot = self.capture_screenshot() if self.capture_screenshot else None
+                    html = response.text if self.capture_html else None
+                    return content, screenshot, html
 
             except requests.RequestException as e:
                 self.logger.error(f"Attempt {attempt + 1}/{MAX_RETRIES} failed: {str(e)}")
@@ -203,6 +250,7 @@ if __name__ == "__main__":
             url=args.url,
             interval=args.interval,
             selector=args.selector,
-            use_trafilatura=args.use_trafilatura
+            use_trafilatura=args.use_trafilatura,
+            interactive_mode=args.interactive
         )
         monitor.start_monitoring()
