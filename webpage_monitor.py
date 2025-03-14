@@ -23,6 +23,8 @@ def parse_arguments():
                       help='CSS selector to monitor specific element')
     parser.add_argument('--use-trafilatura', action='store_true',
                       help='Use trafilatura for content extraction')
+    parser.add_argument('--gui', action='store_true',
+                      help='Launch with GUI interface')
     return parser.parse_args()
 
 class WebpageMonitor:
@@ -150,10 +152,14 @@ class WebpageMonitor:
 
 if __name__ == "__main__":
     args = parse_arguments()
-    monitor = WebpageMonitor(
-        url=args.url,
-        interval=args.interval,
-        selector=args.selector,
-        use_trafilatura=args.use_trafilatura
-    )
-    monitor.start_monitoring()
+    if args.gui:
+        from gui import main
+        main()
+    else:
+        monitor = WebpageMonitor(
+            url=args.url,
+            interval=args.interval,
+            selector=args.selector,
+            use_trafilatura=args.use_trafilatura
+        )
+        monitor.start_monitoring()
