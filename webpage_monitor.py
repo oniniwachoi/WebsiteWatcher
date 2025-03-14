@@ -6,8 +6,13 @@ import logging
 import requests
 import argparse
 from bs4 import BeautifulSoup
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 import trafilatura
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from PIL import Image
+import io
+import base64
 
 from config import DEFAULT_CONFIG, HEADERS, MAX_RETRIES, RETRY_DELAY, REQUEST_TIMEOUT
 from utils import setup_logging, is_valid_url, calculate_content_hash, extract_relevant_content
@@ -37,12 +42,6 @@ class WebpageMonitor:
     ):
         """
         Initialize webpage monitor
-
-        Args:
-            url: URL to monitor
-            interval: Monitoring interval in seconds
-            selector: CSS selector to monitor specific element
-            use_trafilatura: Whether to use trafilatura for content extraction
         """
         if not is_valid_url(url):
             raise ValueError(f"Invalid URL provided: {url}")
@@ -55,15 +54,35 @@ class WebpageMonitor:
         self.session = requests.Session()
         self.session.headers.update(HEADERS)
 
+        # Setup Selenium
+        chrome_options = Options()
+        chrome_options.add_argument('--headless')
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+        self.driver = webdriver.Chrome(options=chrome_options)
+
         setup_logging()
         self.logger = logging.getLogger(__name__)
 
-    def get_page_content(self) -> Optional[str]:
+    def capture_screenshot(self) -> Optional[str]:
+        """
+        Capture webpage screenshot using Selenium
+        Returns base64 encoded PNG image
+        """
+        try:
+            self.driver.get(self.url)
+            time.sleep(2)  # Wait for page to load
+            screenshot = self.driver.get_screenshot_as_png()
+            # Convert to base64 for easy transfer
+            return base64.b64encode(screenshot).decode('utf-8')
+        except Exception as e:
+            self.logger.error(f"Screenshot capture failed: {str(e)}")
+            return None
+
+    def get_page_content(self) -> Tuple[Optional[str], Optional[str]]:
         """
         Fetch webpage content with retry mechanism
-
-        Returns:
-            Optional[str]: Page content or None if failed
+        Returns (content, screenshot_base64)
         """
         for attempt in range(MAX_RETRIES):
             try:
@@ -74,11 +93,15 @@ class WebpageMonitor:
                 )
                 response.raise_for_status()
 
+                content = None
                 if self.use_trafilatura:
-                    return trafilatura.extract(response.text)
+                    content = trafilatura.extract(response.text)
+                else:
+                    soup = BeautifulSoup(response.text, 'html.parser')
+                    content = extract_relevant_content(soup, self.selector)
 
-                soup = BeautifulSoup(response.text, 'html.parser')
-                return extract_relevant_content(soup, self.selector)
+                screenshot = self.capture_screenshot()
+                return content, screenshot
 
             except requests.RequestException as e:
                 self.logger.error(f"Attempt {attempt + 1}/{MAX_RETRIES} failed: {str(e)}")
@@ -86,18 +109,19 @@ class WebpageMonitor:
                     time.sleep(RETRY_DELAY)
                 else:
                     self.logger.error(f"Failed to fetch {self.url} after {MAX_RETRIES} attempts")
-                    return None
+                    return None, None
 
     def check_for_changes(self) -> Dict[str, Any]:
         """
         Check for changes in webpage content
-
-        Returns:
-            Dict containing status and change information
         """
-        content = self.get_page_content()
+        content, screenshot = self.get_page_content()
         if content is None:
-            return {'status': 'error', 'message': 'Failed to fetch content'}
+            return {
+                'status': 'error',
+                'message': 'Failed to fetch content',
+                'screenshot': None
+            }
 
         current_hash = calculate_content_hash(content)
 
@@ -106,7 +130,8 @@ class WebpageMonitor:
             return {
                 'status': 'initial',
                 'message': 'Initial content captured',
-                'content': content
+                'content': content,
+                'screenshot': screenshot
             }
 
         if current_hash != self.previous_hash:
@@ -114,12 +139,14 @@ class WebpageMonitor:
             return {
                 'status': 'changed',
                 'message': 'Content changed',
-                'content': content
+                'content': content,
+                'screenshot': screenshot
             }
 
         return {
             'status': 'unchanged',
-            'message': 'No changes detected'
+            'message': 'No changes detected',
+            'screenshot': screenshot
         }
 
     def start_monitoring(self):
@@ -149,6 +176,7 @@ class WebpageMonitor:
             self.logger.error(f"Unexpected error: {str(e)}")
         finally:
             self.session.close()
+            self.driver.quit()
 
 if __name__ == "__main__":
     args = parse_arguments()
